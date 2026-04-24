@@ -1,0 +1,56 @@
+using Unity.Collections;
+using Unity.Mathematics;
+using System.Collections.Generic;
+using UnityEngine;
+using UnityEngine.SceneManagement;
+
+public static class SceneMemoryTracker
+{
+    private static readonly List<NativeList<int2>> _activeLists = new List<NativeList<int2>>();
+
+    [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
+    private static void Init()
+    {
+        // 중복 등록 방지 (혹시 모를 재호출 대비)
+        SceneManager.sceneUnloaded -= OnSceneUnloaded;
+        SceneManager.sceneUnloaded += OnSceneUnloaded;
+    }
+
+    /// <summary>
+    /// 관리형 NativeList 생성
+    /// </summary>
+    public static NativeList<int2> CreatePathList(int capacity)
+    {
+        var list = new NativeList<int2>(capacity, Allocator.Persistent);
+        _activeLists.Add(list);
+        return list;
+    }
+
+    /// <summary>
+    /// 수동 해제: 씬 종료 전이라도 메모리를 즉시 반납하고 관리 명단에서 제외합니다.
+    /// </summary>
+    public static void DisposeList(ref NativeList<int2> list)
+    {
+        if (list.IsCreated)
+        {
+            // 명단에서 제거 (성능을 위해 뒤에서부터 찾는 방식이나 Remove 사용)
+            _activeLists.Remove(list);
+            
+            // 실제 메모리 해제
+            list.Dispose();
+        }
+    }
+
+    private static void OnSceneUnloaded(Scene current)
+    {
+        foreach (var list in _activeLists)
+        {
+            if (list.IsCreated)
+            {
+                list.Dispose();
+            }
+        }
+        _activeLists.Clear();
+        Debug.Log($"[SceneMemoryTracker] {current.name} 종료: 미반납된 모든 리스트 일괄 정리 완료.");
+    }
+}
